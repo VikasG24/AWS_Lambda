@@ -1,0 +1,206 @@
+Terraform - open source tool by hesicorp.
+tool for provisioning of resources
+
+terraform init
+terraform plan
+terraform apply
+terraform destroy
+
+Packer - Packer is a image provisioning tool which creates machine images and makes configuration management and server provisioning an easy job.
+
+we can write instructions to packer in json files which are called as templates.
+
+config.json
+{
+"variables": {
+    },
+ "builders": [
+    {
+      "type": "amazon-ebs",
+      "access_key": "{{user `aws_access_key`}}",
+      "secret_key": "{{user `aws_secret_key`}}",
+      "region": "us-east-1",
+      "source_ami": "ami-00dc79254d0461090",
+      "instance_type": "t2.micro",
+      "ssh_username": "ec2-user",
+      "ami_name": "apache-ami-packer-{{timestamp}}"
+    }
+  ],
+  "provisioners": [
+      {
+        "type": "shell",
+        "script": "apa.sh"
+      }
+    ]
+}
+
+vars.json
+{
+"aws_access_key": "AKIA2B6AM3VGJALJGWUR",
+"aws_secret_key": "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"
+}
+
+apa.sh
+#!/bin/bash
+sudo yum -y update
+sudo yum  install -y httpd*
+
+packer build -var-file=vars.json config.json
+
+ssh-keygen -f publickey - creates publickey.pub and private key file to be used in .tf file
+
+
+resource "aws_key_pair" "a-key" {
+  key_name   = "a-key"
+  public_key = "${file("a-key.pub")}"
+}
+
+resource "aws_instance" "example" {
+  ami           = "ami-00068cd7555f543d5"
+  instance_type = "t2.micro"
+  key_name      = "${aws_key_pair.a-key.key_name}"
+
+  provisioner "file" {
+    source      = "script.sh"
+    destination = "/tmp/script.sh"
+  }
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/script.sh",
+      "sudo /tmp/script.sh",
+    ]
+  }
+
+connection {
+    type = "ssh"
+    host =  self.public_ip
+    user = "ec2-user"
+    private_key = "${file("a-key")}"
+  }
+} 
+
+
+ 
+1.Create IAM Role:
+
+iam.tf
+
+resource "aws_iam_role" "developer" {
+  name               = "developer"
+  assume_role_policy = "${file("assume_policy.json")}"
+}
+
+assume_policy.json
+
+{
+ "Version": "2012-10-17",
+ "Statement": [
+   {
+     "Action": "sts:AssumeRole",
+     "Principal": {
+       "Service": "ec2.amazonaws.com"
+     },
+     "Effect": "Allow",
+     "Sid": ""
+   }
+ ]
+}
+
+2. Create iam_instance_profile
+
+user.tf
+resource "aws_iam_instance_profile" "test_profile" { name  = "test_profile"                         
+roles = ["${aws_iam_role.developer.name}"]
+}
+
+3.Create IAM policy 
+
+iam_policy.tf
+
+resource "aws_iam_policy" "policy" {
+  name        = "test-policy"
+  description = "A test policy"
+  policy      = "${file("policys3bucket.json")}"
+}
+
+policys3bucket.json
+
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "s3:*",
+            "Resource": "*"
+        }
+    ]
+}
+
+4.Attaching policies to role
+resource "aws_iam_policy_attachment" "test-attach" {
+  name       = "test-attachment"
+  roles      = ["${aws_iam_role.developer.name}"]
+  policy_arn = "${aws_iam_policy.policy.arn}"
+}
+
+5.Assigning IAM role to an EC2 instance - for this aws_iam_instance_profile is used.
+
+instance_attach.tf
+resource "aws_instance" "my-test-instance" {
+  ami             = "${lookup(var.AmiLinux, var.region)}"
+  instance_type   = "t2.micro"
+  iam_instance_profile = "${aws_iam_instance_profile.test_profile.name}"
+
+  tags {
+    Name = "test-instance"
+  }
+}
+
+variables.tf
+variable "region" {
+  default = "us-east-1"
+}
+variable "AmiLinux" {
+  type = "map"
+  default = {
+    us-east-1 = "ami-b73b63a0" # Virginia
+  }
+  description = "have only added one region"
+}
+
+6.Security Groups
+
+resource "aws_security_group" "allow_tls" {
+  name        = "allow_tls"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = "vpc-3d7a5b47"
+
+  ingress {
+    # TLS (change to whatever ports you need)
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    # Please restrict your ingress to only necessary IPs and ports.
+    # Opening to 0.0.0.0/0 can lead to security vulnerabilities.
+  }
+
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    cidr_blocks     = ["0.0.0.0/0"]
+  }
+}
+
+terraform apply creates a security group
+
+7. Auto Scaling Groups
+
+
+ 
+
+
+
+
+
+
